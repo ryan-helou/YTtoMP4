@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+cookies.txt
+*.mp4
+*.mp3
+*.webm
+*.m4a
+.DS_Store
