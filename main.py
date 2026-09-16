@@ -9,12 +9,14 @@ Nothing is persisted.
 
 from __future__ import annotations
 
+import base64
 import os
 import re
 import shutil
 import tempfile
 import threading
 import time
+import urllib.request
 import uuid
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
@@ -45,15 +47,61 @@ ALLOWED_HOSTS = {
     "youtu.be", "www.youtu.be", "youtube-nocookie.com", "www.youtube-nocookie.com",
 }
 
-# Optional: paste a Netscape-format cookies.txt into the YTDLP_COOKIES env var.
-# YouTube often blocks datacenter IPs ("Sign in to confirm you're not a bot");
-# cookies from a logged-in browser session are the standard fix.
-COOKIE_FILE: str | None = None
-if os.environ.get("YTDLP_COOKIES", "").strip():
-    _cf = Path(tempfile.gettempdir()) / "yt-cookies.txt"
-    _cf.write_text(os.environ["YTDLP_COOKIES"], encoding="utf-8")
-    _cf.chmod(0o600)
-    COOKIE_FILE = str(_cf)
+# Paste a Netscape-format cookies.txt into YTDLP_COOKIES (or base64 into
+# YTDLP_COOKIES_B64). YouTube bot-blocks datacenter IPs outright — cookies are
+# the fix. Railway's variable editor can mangle tabs, and a cookie file with
+# spaces instead of tabs is silently ignored by yt-dlp, so repair it here and
+# report what actually loaded rather than failing mysteriously later.
+AUTH_COOKIES = {"SID", "__Secure-3PSID", "__Secure-1PSID", "SAPISID", "__Secure-3PAPISID"}
+
+
+def load_cookies() -> tuple[str | None, dict[str, Any]]:
+    raw = os.environ.get("YTDLP_COOKIES", "")
+    if not raw.strip() and os.environ.get("YTDLP_COOKIES_B64", "").strip():
+        try:
+            raw = base64.b64decode(os.environ["YTDLP_COOKIES_B64"], validate=False).decode("utf-8")
+        except Exception as exc:  # noqa: BLE001
+            return None, {"error": f"YTDLP_COOKIES_B64 is not valid base64: {exc}"}
+    if not raw.strip():
+        return None, {}
+
+    lines, names, expired = ["# Netscape HTTP Cookie File"], set(), 0
+    now = time.time()
+    for line in raw.replace("\r\n", "\n").replace("\\n", "\n").split("\n"):
+        line = line.rstrip()
+        if not line or line.lstrip().startswith("#"):
+            continue
+        fields = line.split("\t") if "\t" in line else line.split(None, 6)
+        if len(fields) != 7:
+            continue
+        lines.append("\t".join(fields))
+        names.add(fields[5])
+        try:
+            exp = float(fields[4])
+            if exp and exp < now:
+                expired += 1
+        except ValueError:
+            pass
+
+    if len(lines) == 1:
+        return None, {"error": "No cookie lines parsed — is it Netscape format (7 tab-separated fields)?"}
+
+    path = Path(tempfile.gettempdir()) / "yt-cookies.txt"
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    path.chmod(0o600)
+    return str(path), {
+        "count": len(lines) - 1,
+        "expired": expired,
+        "authenticated": bool(names & AUTH_COOKIES),
+    }
+
+
+COOKIE_FILE, COOKIE_INFO = load_cookies()
+if COOKIE_FILE:
+    print(f"cookies: loaded {COOKIE_INFO['count']} "
+          f"(authenticated={COOKIE_INFO['authenticated']}, expired={COOKIE_INFO['expired']})", flush=True)
+elif COOKIE_INFO.get("error"):
+    print(f"cookies: NOT loaded — {COOKIE_INFO['error']}", flush=True)
 
 # Optional override, e.g. YTDLP_PLAYER_CLIENTS="tv,web_safari"
 PLAYER_CLIENTS = [c.strip() for c in os.environ.get("YTDLP_PLAYER_CLIENTS", "").split(",") if c.strip()]
@@ -61,6 +109,13 @@ PLAYER_CLIENTS = [c.strip() for c in os.environ.get("YTDLP_PLAYER_CLIENTS", "").
 # Optional residential proxy (http://user:pass@host:port) — the other way past
 # YouTube's datacenter-IP bot check when you'd rather not upload cookies.
 PROXY = os.environ.get("YTDLP_PROXY", "").strip()
+
+# BgUtils PO token provider, started next to us by entrypoint.sh. YouTube wants a
+# "proof of origin" token from server IPs; without one, requests get bot-checked.
+POT_PORT = os.environ.get("POT_PORT", "4416")
+POT_BASE_URL = os.environ.get("POT_BASE_URL", f"http://127.0.0.1:{POT_PORT}")
+POT_DISABLED = os.environ.get("POT_DISABLED", "").lower() in ("1", "true", "yes")
+VERBOSE = os.environ.get("YTDLP_VERBOSE", "").lower() in ("1", "true", "yes")
 
 WORK_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -146,8 +201,9 @@ threading.Thread(target=reaper, daemon=True).start()
 
 def base_opts() -> dict[str, Any]:
     opts: dict[str, Any] = {
-        "quiet": True,
-        "no_warnings": True,
+        "quiet": not VERBOSE,
+        "verbose": VERBOSE,
+        "no_warnings": not VERBOSE,
         "noplaylist": True,
         "noprogress": True,
         "windowsfilenames": True,  # keeps names portable for any client OS
@@ -158,11 +214,26 @@ def base_opts() -> dict[str, Any]:
     }
     if COOKIE_FILE:
         opts["cookiefile"] = COOKIE_FILE
+    extractor_args: dict[str, Any] = {}
     if PLAYER_CLIENTS:
-        opts["extractor_args"] = {"youtube": {"player_client": PLAYER_CLIENTS}}
+        extractor_args["youtube"] = {"player_client": PLAYER_CLIENTS}
+    if not POT_DISABLED:
+        extractor_args["youtubepot-bgutilhttp"] = {"base_url": [POT_BASE_URL]}
+    if extractor_args:
+        opts["extractor_args"] = extractor_args
     if PROXY:
         opts["proxy"] = PROXY
     return opts
+
+
+def pot_alive() -> bool:
+    if POT_DISABLED:
+        return False
+    try:
+        with urllib.request.urlopen(f"{POT_BASE_URL}/ping", timeout=2) as r:
+            return r.status == 200
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def build_opts(job: Job, dest: Path) -> dict[str, Any]:
@@ -287,8 +358,12 @@ def humanize_error(exc: Exception) -> str:
     msg = re.sub(r"^YouTube said:\s*", "", msg).strip()
     low = msg.lower()
     if "sign in to confirm" in low or ("bot" in low and "confirm" in low):
-        return ("YouTube is blocking this server's IP as a bot. Set the YTDLP_COOKIES "
-                "env var on Railway to a cookies.txt from a logged-in browser.")
+        if COOKIE_FILE:
+            return ("YouTube rejected this server's cookies — they've likely expired. "
+                    "Export a fresh cookies.txt and update YTDLP_COOKIES on Railway.")
+        return ("YouTube blocks this server's IP until it's signed in. Set YTDLP_COOKIES "
+                "on Railway to a cookies.txt exported from a logged-in browser "
+                "(see the README), or set YTDLP_PROXY to a residential proxy.")
     if "private video" in low:
         return "That video is private."
     if "unavailable" in low or "not available" in low or "removed by the uploader" in low:
@@ -409,7 +484,11 @@ def index() -> HTMLResponse:
 def healthz() -> dict[str, Any]:
     with LOCK:
         active = sum(1 for j in JOBS.values() if j.status in ("queued", "working"))
-    return {"ok": True, "active": active, "cookies": bool(COOKIE_FILE), "proxy": bool(PROXY)}
+    return {
+        "ok": True, "active": active,
+        "cookies": bool(COOKIE_FILE), "cookieInfo": COOKIE_INFO,
+        "proxy": bool(PROXY), "potoken": pot_alive(),
+    }
 
 
 @app.get("/api/config")

@@ -62,7 +62,10 @@ web page can't drive your downloader.
 | Variable | Default | What it does |
 |---|---|---|
 | `ACCESS_CODE` | _(unset)_ | If set, the page asks for this code before anything runs. Recommended for a public URL. |
-| `YTDLP_COOKIES` | _(unset)_ | Contents of a Netscape `cookies.txt`. **Fixes "Sign in to confirm you're not a bot".** |
+| `YTDLP_COOKIES` | _(unset)_ | Contents of a Netscape `cookies.txt`. **Required in production** — see below. |
+| `YTDLP_COOKIES_B64` | _(unset)_ | Same thing base64-encoded, for when a dashboard mangles tabs. |
+| `POT_DISABLED` | `false` | Turn off the in-container PO token provider. |
+| `YTDLP_VERBOSE` | `false` | Full yt-dlp debug output into the Railway logs. |
 | `MAX_CONCURRENT` | `2` | Videos processed at once. Raise only with more RAM/CPU. |
 | `MAX_BATCH` | `25` | Max videos per batch / playlist. |
 | `MAX_DURATION_SECONDS` | `7200` | Per-video length limit. |
@@ -71,26 +74,46 @@ web page can't drive your downloader.
 | `YTDLP_PLAYER_CLIENTS` | _(unset)_ | e.g. `tv,web_safari` — override yt-dlp's YouTube client if extraction breaks. |
 | `ALLOW_ANY_SITE` | `false` | Allow non-YouTube sites yt-dlp supports. Off by default so the URL isn't an open proxy. |
 
-### YouTube blocks the server — read this first
+### YouTube blocks the server — you must add cookies
 
-**This is not optional in practice.** Railway's datacenter IPs are bot-checked by YouTube,
-so a fresh deploy returns *"Sign in to confirm you're not a bot"* on every video. Verified
-on this deployment; alternate player clients (`tv`, `tv_simply`, `android_vr`) did not get
-through. Two ways to fix it:
+Railway's datacenter IPs are blocked by YouTube outright: every video returns
+*"Sign in to confirm you're not a bot"*. This was chased to the end on the live
+deployment, so don't repeat the experiments:
 
-**A. Cookies (free, 2 minutes):**
+| Attempted | Result |
+|---|---|
+| Alternate player clients (`tv`, `tv_simply`, `android_vr`, `mweb`, `web_embedded`, `web_safari`) | All `LOGIN_REQUIRED` |
+| **BgUtils PO token provider** running in-container (`/healthz` → `potoken: true`) | Still `LOGIN_REQUIRED` |
+| **Deno** JS runtime so yt-dlp can solve the JS challenge | Still `LOGIN_REQUIRED` |
 
-1. In a logged-in browser, export cookies for `youtube.com` in **Netscape** format
-   (any "Get cookies.txt" extension).
-2. Paste the whole file into the `YTDLP_COOKIES` variable in Railway → Variables.
-3. Redeploy. `/healthz` reports `"cookies": true` when it's loaded.
+The PO provider and Deno are both kept in the image — they're needed once you *are*
+signed in — but they don't substitute for authentication. The IP is the problem.
 
-Use a throwaway Google account — those cookies are full session credentials, and a
-flagged account is one you don't want to be your real one.
+**Fix A — cookies (free, ~2 min).** Order matters; YouTube rotates cookies on any tab
+that stays open, which is why a normal-window export dies within hours:
 
-**B. Residential proxy (paid, no account):** set `YTDLP_PROXY` to a residential endpoint
-(Webshare, IPRoyal, Bright Data). No Google account involved, but it costs a few dollars
-a month.
+1. Open a **private / incognito window** and log into YouTube. Use a **throwaway Google
+   account** — this is a full session credential and the account can get flagged.
+2. In that same tab, go to `https://www.youtube.com/robots.txt`.
+3. Export `youtube.com` cookies with a "Get cookies.txt" extension (Netscape format).
+4. **Close the private window without logging out.** Never reopen that session.
+5. Railway → `grab-yt` → **Variables** → new variable `YTDLP_COOKIES`, paste the whole
+   file. If the editor mangles the tabs, base64 the file instead and use
+   `YTDLP_COOKIES_B64` (`base64 -i cookies.txt | pbcopy`).
+
+The app repairs space-mangled pastes, skips junk lines, and tells you what it got:
+
+```bash
+curl -s https://grab-yt-production.up.railway.app/healthz
+# {"cookies":true,"cookieInfo":{"count":24,"expired":0,"authenticated":true},...}
+```
+
+`authenticated: true` means real session cookies are present. If it says `false`, the
+export missed the login cookies — redo it from the private window.
+
+**Fix B — residential proxy (paid, no Google account).** Set `YTDLP_PROXY` to a
+residential endpoint (Webshare, IPRoyal, Bright Data). A few dollars a month, nothing to
+flag or expire.
 
 Locally neither is needed — home IPs aren't gated.
 
