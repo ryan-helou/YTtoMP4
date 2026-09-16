@@ -13,14 +13,24 @@ FastAPI + yt-dlp + ffmpeg, containerized for Railway.
 - Files live in a temp dir, get streamed to you, then a reaper deletes them (~30 min TTL).
   Nothing is stored, no database.
 
-## Run locally
+## Two ways to run it — pick one
+
+**On your Mac (no cookies, works immediately):**
 
 ```bash
-python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
-./.venv/bin/python main.py     # http://localhost:8000
+./run.sh
 ```
 
-Requires `ffmpeg` on PATH (`brew install ffmpeg`). The Docker image installs it for you.
+Sets up the venv on first run, then serves on `http://localhost:8000` and opens it.
+It binds `0.0.0.0`, so your phone or iPad can use it too at `http://<your-mac-ip>:8000`
+while on the same Wi-Fi. Needs `ffmpeg` (`brew install ffmpeg`).
+
+Home IPs aren't bot-checked, so **this route needs no cookies, no proxy and no account**.
+The tradeoff is that the Mac has to be awake, and off your Wi-Fi it's unreachable.
+
+**On Railway (reachable anywhere, needs cookies):** deploy as below — but read
+[YouTube blocks the server](#youtube-blocks-the-server--you-must-add-cookies) first. The
+code is identical; the datacenter IP is what YouTube rejects.
 
 ## Deploy to Railway
 
