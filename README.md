@@ -57,8 +57,8 @@ railway domain        # public URL
 
 1. `chrome://extensions` → enable **Developer mode**
 2. **Load unpacked** → select the `extension/` folder
-3. Extension **Settings** → set the server URL (defaults to the Railway deployment) and
-   the access code if you set one
+3. Extension **Settings** → server URL. It defaults to `http://localhost:8000`, which is
+   what `./run.sh` serves — so with the app running on your Mac it works out of the box.
 
 > It can't go on the Chrome Web Store: Google's Developer Program Policies prohibit
 > extensions that download content from YouTube, so a listing would be rejected or pulled.

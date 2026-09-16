@@ -2,7 +2,7 @@
    Owns every batch so closing the popup never kills a download. State lives in
    chrome.storage.local, so a recycled service worker picks up where it left off. */
 
-const DEFAULTS = { server: "https://grab-yt-production.up.railway.app", code: "", format: "mp4", quality: "1080" };
+const DEFAULTS = { server: "http://localhost:8000", code: "", format: "mp4", quality: "1080" };
 
 async function settings() {
   const s = await chrome.storage.sync.get(DEFAULTS);

@@ -1,4 +1,4 @@
-const DEFAULTS = { server: "https://grab-yt-production.up.railway.app", code: "", format: "mp4", quality: "1080" };
+const DEFAULTS = { server: "http://localhost:8000", code: "", format: "mp4", quality: "1080" };
 const $ = (id) => document.getElementById(id);
 let fmt = "mp4", tabUrl = "";
 
@@ -39,7 +39,7 @@ $("opts").onclick = () => chrome.runtime.openOptionsPage();
 $("grab").onclick = async () => {
   $("grab").disabled = true;
   const r = await send({ type: "start", urls: [tabUrl], format: fmt, quality: $("quality").value });
-  if (!r?.ok) note(esc(r?.error || "Could not reach the server"), "err");
+  if (!r?.ok) note(esc(r?.error || "Can't reach the server — is ./run.sh running on your Mac?"), "err");
   else note(`Queued ${r.data.count} video${r.data.count > 1 ? "s" : ""}. You can close this popup.`, "ok");
   $("grab").disabled = false;
 };

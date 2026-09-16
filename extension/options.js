@@ -1,4 +1,4 @@
-const D = { server: "https://grab-yt-production.up.railway.app", code: "" };
+const D = { server: "http://localhost:8000", code: "" };
 chrome.storage.sync.get(D).then((s) => {
   document.getElementById("server").value = s.server;
   document.getElementById("code").value = s.code;
