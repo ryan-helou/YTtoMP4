@@ -25,6 +25,7 @@ from urllib.parse import urlparse
 
 import yt_dlp
 from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
@@ -56,6 +57,10 @@ if os.environ.get("YTDLP_COOKIES", "").strip():
 
 # Optional override, e.g. YTDLP_PLAYER_CLIENTS="tv,web_safari"
 PLAYER_CLIENTS = [c.strip() for c in os.environ.get("YTDLP_PLAYER_CLIENTS", "").split(",") if c.strip()]
+
+# Optional residential proxy (http://user:pass@host:port) — the other way past
+# YouTube's datacenter-IP bot check when you'd rather not upload cookies.
+PROXY = os.environ.get("YTDLP_PROXY", "").strip()
 
 WORK_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -155,6 +160,8 @@ def base_opts() -> dict[str, Any]:
         opts["cookiefile"] = COOKIE_FILE
     if PLAYER_CLIENTS:
         opts["extractor_args"] = {"youtube": {"player_client": PLAYER_CLIENTS}}
+    if PROXY:
+        opts["proxy"] = PROXY
     return opts
 
 
@@ -368,6 +375,15 @@ def expand(urls: list[str]) -> list[dict[str, str]]:
 
 app = FastAPI(title="YT to MP4/MP3", docs_url=None, redoc_url=None)
 
+# Let the companion Chrome extension call the API, but nothing else cross-origin —
+# a random web page shouldn't be able to drive someone's downloader.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=r"chrome-extension://.*",
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
+
 
 class BatchRequest(BaseModel):
     urls: str
@@ -393,7 +409,7 @@ def index() -> HTMLResponse:
 def healthz() -> dict[str, Any]:
     with LOCK:
         active = sum(1 for j in JOBS.values() if j.status in ("queued", "working"))
-    return {"ok": True, "active": active, "cookies": bool(COOKIE_FILE)}
+    return {"ok": True, "active": active, "cookies": bool(COOKIE_FILE), "proxy": bool(PROXY)}
 
 
 @app.get("/api/config")

@@ -1,0 +1,62 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8" />
+<style>
+  :root{--bg:#141419;--panel:#1c1c23;--line:#2b2b35;--text:#f4f4f6;--muted:#8e8e9e;--accent:#ff2d55;--accent-2:#ff7a45;--ok:#32d583;--err:#ff5470}
+  *{box-sizing:border-box}
+  body{width:340px;margin:0;padding:14px;background:var(--bg);color:var(--text);
+    font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif}
+  h1{margin:0 0 2px;font-size:16px;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:11px;margin-bottom:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .seg{display:flex;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:3px;margin-bottom:8px}
+  .seg button{flex:1;border:0;background:transparent;color:var(--muted);font:600 12px inherit;padding:8px;border-radius:7px;cursor:pointer}
+  .seg button[aria-pressed=true]{background:linear-gradient(135deg,var(--accent),var(--accent-2));color:#fff}
+  select{width:100%;background:var(--panel);border:1px solid var(--line);color:var(--text);
+    border-radius:10px;padding:9px 10px;font:12px inherit;margin-bottom:10px;cursor:pointer}
+  button.go{width:100%;border:0;border-radius:10px;padding:11px;margin-bottom:7px;cursor:pointer;
+    background:linear-gradient(135deg,var(--accent),var(--accent-2));color:#fff;font:700 13px inherit}
+  button.ghost{width:100%;border:1px solid var(--line);background:var(--panel);color:var(--text);
+    border-radius:10px;padding:10px;font:600 12px inherit;cursor:pointer;margin-bottom:7px}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .note{font-size:11px;padding:8px 10px;border-radius:9px;margin:8px 0 0;display:none}
+  .note.on{display:block}
+  .note.err{background:rgba(255,84,112,.12);color:#ffb3c0}
+  .note.ok{background:rgba(50,213,131,.12);color:#9ff0c6}
+  .list{margin-top:10px;max-height:230px;overflow:auto}
+  .it{padding:8px 10px;background:var(--panel);border:1px solid var(--line);border-radius:9px;margin-bottom:6px}
+  .it .t{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .it .s{font-size:10.5px;color:var(--muted);margin-top:2px}
+  .it.done .s{color:var(--ok)} .it.bad .s{color:var(--err);white-space:normal}
+  .mini{height:4px;background:#2b2b35;border-radius:99px;overflow:hidden;margin-top:6px}
+  .mini i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent-2))}
+  .foot{display:flex;justify-content:space-between;margin-top:10px;font-size:11px}
+  .foot a{color:var(--muted);text-decoration:none;cursor:pointer}
+  .foot a:hover{color:var(--accent)}
+</style></head>
+<body>
+  <h1>Grab</h1>
+  <div class="sub" id="where">…</div>
+
+  <div class="seg" role="group">
+    <button id="f-mp4" aria-pressed="true">MP4 · video</button>
+    <button id="f-mp3" aria-pressed="false">MP3 · audio</button>
+  </div>
+  <select id="quality">
+    <option value="1080">1080p</option><option value="720">720p</option>
+    <option value="480">480p</option><option value="360">360p</option>
+    <option value="best">Best available</option>
+  </select>
+
+  <button class="go" id="grab">Grab this page</button>
+  <button class="ghost" id="scan">Scan page for all videos</button>
+
+  <div class="note" id="note"></div>
+  <div class="list" id="list"></div>
+
+  <div class="foot">
+    <a id="open">Open web app ↗</a>
+    <a id="opts">Settings</a>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
