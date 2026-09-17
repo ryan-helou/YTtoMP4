@@ -41,6 +41,7 @@ MAX_BATCH = int(os.environ.get("MAX_BATCH", "25"))
 MAX_DURATION = int(os.environ.get("MAX_DURATION_SECONDS", "7200"))  # 2h
 JOB_TTL = int(os.environ.get("JOB_TTL_SECONDS", "1800"))  # 30 min
 ALLOW_ANY_SITE = os.environ.get("ALLOW_ANY_SITE", "").lower() in ("1", "true", "yes")
+MAX_NET_ATTEMPTS = int(os.environ.get("MAX_NET_ATTEMPTS", "40"))
 
 ALLOWED_HOSTS = {
     "youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com",
@@ -177,7 +178,8 @@ def reaper() -> None:
         with LOCK:
             stale = [
                 j for j in JOBS.values()
-                if now - j.created > JOB_TTL or (j.served and now - j.served > 900)
+                if (now - j.created > JOB_TTL and j.status != "working")
+                or (j.served and now - j.served > 900)
             ]
             for j in stale:
                 JOBS.pop(j.id, None)
@@ -207,8 +209,13 @@ def base_opts() -> dict[str, Any]:
         "noplaylist": True,
         "noprogress": True,
         "windowsfilenames": True,  # keeps names portable for any client OS
-        "retries": 3,
-        "fragment_retries": 5,
+        "retries": float("inf"),
+        "fragment_retries": float("inf"),
+        "retry_sleep_functions": {
+            "http": lambda n: min(3 * n, 30),
+            "fragment": lambda n: min(3 * n, 30),
+        },
+        "continuedl": True,  # resume partial files instead of restarting
         "socket_timeout": 30,
         "geo_bypass": True,
     }
@@ -310,7 +317,16 @@ def pick_output(dest: Path, fmt: str) -> Path:
     return max(pool, key=lambda p: p.stat().st_size)
 
 
-def run_job(job: Job) -> None:
+NETWORK_HINTS = ("nodename nor servname", "temporary failure in name resolution",
+                 "connection reset", "timed out", "network is unreachable",
+                 "connection refused", "transporterror", "incomplete read")
+
+
+def is_network_error(exc: Exception) -> bool:
+    return any(h in str(exc).lower() for h in NETWORK_HINTS)
+
+
+def run_job(job: Job, attempt: int = 1) -> None:
     dest = job_dir(job.id)
     dest.mkdir(parents=True, exist_ok=True)
     try:
@@ -345,6 +361,14 @@ def run_job(job: Job) -> None:
     except Exception as exc:  # noqa: BLE001 — surfaced to the user
         if not job.title:
             job.title = job.url.rsplit("/", 1)[-1][:60]
+        # A flaky connection shouldn't cost the bytes already downloaded: keep the
+        # job dir and come back to it — yt-dlp continues from the .part file.
+        if is_network_error(exc) and attempt < MAX_NET_ATTEMPTS:
+            job.phase = f"Connection dropped — retrying ({attempt}/{MAX_NET_ATTEMPTS})"
+            job.status = "working"
+            time.sleep(min(5 * attempt, 30))
+            run_job(job, attempt + 1)
+            return
         job.status = "error"
         job.phase = "Failed"
         job.error = humanize_error(exc)
@@ -370,6 +394,8 @@ def humanize_error(exc: Exception) -> str:
         return "Unavailable — removed, private, region-locked, or age-restricted."
     if "unsupported url" in low or "is not a valid url" in low:
         return "That doesn't look like a YouTube link."
+    if any(h in low for h in NETWORK_HINTS):
+        return "Lost the internet connection partway through. Check the network and try again."
     if "members-only" in low:
         return "Members-only video."
     if "does not exist" in low:
