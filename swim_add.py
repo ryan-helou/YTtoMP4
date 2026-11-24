@@ -17,12 +17,14 @@ import re
 import shutil
 import subprocess
 import sys
+import unicodedata
 from pathlib import Path
 
 YTDLP = str(Path(__file__).parent / ".venv/bin/yt-dlp")
 DEVICE = Path("/Volumes/SWIM PRO")
 STAGE = Path("/tmp/swim-stage")
 BAD = re.compile(r"\b(live|cover|remix|reaction|sped up|slowed|nightcore|8d|karaoke|instrumental|mashup|performs?)\b", re.I)
+
 # Talk-show uploads are live performances even when the title doesn't say "live".
 TV = re.compile(r"tonight show|late (night|show)|fallon|colbert|kimmel|corden|ellen|saturday night live|jools holland|tiny desk", re.I)
 OFFICIAL_AUDIO = re.compile(r"official audio|\(audio\)", re.I)
@@ -30,8 +32,14 @@ REUPLOAD = re.compile(r"lyrics?\b|\blyric video", re.I)
 
 
 def norm(s: str) -> str:
-    """Lowercase, strip everything but letters and digits."""
-    return re.sub(r"[^a-z0-9]", "", s.lower())
+    """Lowercase, fold accents to ASCII, strip everything but letters and digits.
+
+    Folding matters: without it "Hoppipolla" never matches "Hoppipolla" because
+    the accented letter is deleted rather than folded, leaving "hopppolla".
+    """
+    decomposed = unicodedata.normalize("NFKD", s.lower())
+    ascii_only = "".join(c for c in decomposed if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9]", "", ascii_only)
 
 
 def search(query: str, n: int = 6) -> list[dict]:
@@ -78,7 +86,9 @@ def pick(artist: str, title: str, rows: list[dict]) -> tuple[dict | None, str]:
             s += 2
         if REUPLOAD.search(r["title"]) and not on_artist_channel:
             s -= 2                                    # lyrics-video reupload
-        if BAD.search(r["title"]) or TV.search(r["title"]) or TV.search(r["channel"]):
+        # "instrumental"/"live" are red flags unless the user asked for one.
+        bad = [m for m in BAD.findall(r["title"]) if m.lower() not in title.lower()]
+        if bad or TV.search(r["title"]) or TV.search(r["channel"]):
             s -= 6                                    # live / cover / talk-show
         scored.append((s, r))
     if not scored:
