@@ -1,11 +1,29 @@
+# Python
 __pycache__/
 *.py[cod]
 .venv/
 venv/
+
+# Node / build output
+node_modules/
+dist/
+build/
+.next/
+
+# Secrets and local config
 .env
+.env.*
 cookies.txt
+
+# Local tooling (kept on disk, not tracked)
+.claude/
+CLAUDE.md
+AGENTS.md
+
+# Downloads and scratch
 *.mp4
 *.mp3
 *.webm
 *.m4a
+handoff.txt
 .DS_Store
